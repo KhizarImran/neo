@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "terminal-ui": {
+      "source": "pproenca/dot-skills",
+      "sourceType": "github",
+      "computedHash": "1405f07ef3d1924ad6896b575fe3a765e78a52c95f2e2fccce802f831c9ff11c"
+    }
+  }
+}
