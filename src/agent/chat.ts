@@ -161,6 +161,23 @@ Use these proactively when the user asks to work with files, run scripts, or mak
 For all other messages, respond conversationally and helpfully.`;
 }
 
+// ── Provider helpers ──────────────────────────────────────────────────────────
+
+export type AiProvider = 'bedrock' | 'azure';
+
+function resolveModel(provider: AiProvider): NonNullable<ReturnType<typeof getModel>> {
+  if (provider === 'azure') {
+    const modelId = (process.env['AZURE_MODEL_ID'] ?? 'gpt-4o') as Parameters<typeof getModel>[1];
+    const model = getModel('azure-openai-responses', modelId);
+    if (!model) throw new Error('Could not load Azure OpenAI model. Check AZURE_MODEL_ID, AZURE_OPENAI_API_KEY and AZURE_OPENAI_BASE_URL.');
+    return model;
+  }
+  const modelId = (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1];
+  const model = getModel('amazon-bedrock', modelId);
+  if (!model) throw new Error('Could not load Bedrock model. Check BEDROCK_MODEL_ID and AWS credentials.');
+  return model;
+}
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 export interface ChatMessage {
@@ -178,16 +195,15 @@ export class ChatAgent {
   private inputDir: string;
   private skillsDir: string;
   private workspaceDir: string;
+  readonly provider: AiProvider;
 
-  constructor(inputDir: string, skillsDir: string, workspaceDir: string) {
+  constructor(inputDir: string, skillsDir: string, workspaceDir: string, provider?: AiProvider) {
     this.inputDir     = inputDir;
     this.skillsDir    = skillsDir;
     this.workspaceDir = workspaceDir;
+    this.provider     = provider ?? ((process.env['AI_PROVIDER'] === 'azure' ? 'azure' : 'bedrock') as AiProvider);
 
-    const modelId = (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1];
-    const model = getModel('amazon-bedrock', modelId);
-    if (!model) throw new Error('Could not load Bedrock model. Check BEDROCK_MODEL_ID and AWS credentials.');
-    this.model = model;
+    this.model = resolveModel(this.provider);
 
     this.context = {
       systemPrompt: buildSystemPrompt(skillsDir, inputDir, workspaceDir),
@@ -291,7 +307,7 @@ export class ChatAgent {
         role: 'assistant',
         content: [{ type: 'text', text: summaryText }],
         api: 'bedrock-converse-stream',
-        provider: 'amazon-bedrock',
+        provider: this.provider === 'azure' ? 'azure-openai-responses' : 'amazon-bedrock',
         model: this.model.id,
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
         stopReason: 'stop',

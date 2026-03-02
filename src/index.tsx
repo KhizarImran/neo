@@ -26,16 +26,22 @@ Modes:
   --batch          Batch mode — analyse all images at once
 
 Environment:
+  AI_PROVIDER                   AI provider: bedrock (default) or azure
   AWS_PROFILE                   AWS profile for Bedrock auth
-  AWS_ACCESS_KEY_ID             AWS access key
-  AWS_SECRET_ACCESS_KEY         AWS secret key
+  AWS_ACCESS_KEY_ID             AWS access key (Bedrock)
+  AWS_SECRET_ACCESS_KEY         AWS secret key (Bedrock)
   AWS_REGION                    AWS region (default: us-east-1)
   BEDROCK_MODEL_ID              Bedrock model ID (default: us.anthropic.claude-sonnet-4-20250514-v1:0)
+  AZURE_OPENAI_API_KEY          Azure OpenAI API key
+  AZURE_OPENAI_BASE_URL         Azure endpoint, e.g. https://<resource>.openai.azure.com/openai/v1
+  AZURE_MODEL_ID                Azure deployment name (default: gpt-4o)
 
 Keybindings (chat mode):
-  Enter   Send message
-  ↑/↓     Scroll conversation
-  Ctrl+C  Quit
+  Enter      Send message
+  ↑/↓        Scroll conversation
+  /skills    List loaded skills
+  /connect   Switch AI provider (AWS Bedrock ↔ Azure OpenAI)
+  Ctrl+C     Quit
 
 Keybindings (batch mode):
   Enter   Start analysis

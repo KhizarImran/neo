@@ -4,7 +4,8 @@ import { ChatMessages, type ChatMessagesHandle } from './components/ChatMessages
 import { InputBox } from './components/InputBox.js';
 import { WorkingBox } from './components/WorkingBox.js';
 import { SkillsModal } from './components/SkillsModal.js';
-import { ChatAgent, type ChatMessage } from '../agent/chat.js';
+import { ConnectModal } from './components/ConnectModal.js';
+import { ChatAgent, type ChatMessage, type AiProvider } from '../agent/chat.js';
 import { loadSkills } from '../agent/loader.js';
 
 interface ChatAppProps {
@@ -13,14 +14,25 @@ interface ChatAppProps {
   workspaceDir: string;
 }
 
+function initialProvider(): AiProvider {
+  return process.env['AI_PROVIDER'] === 'azure' ? 'azure' : 'bedrock';
+}
+
+const PROVIDER_LABEL: Record<AiProvider, string> = {
+  bedrock: 'AWS Bedrock',
+  azure:   'Azure OpenAI',
+};
+
 export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
   const renderer = useRenderer();
 
-  const [messages, setMessages]       = useState<ChatMessage[]>([]);
-  const [isStreaming, setIsStreaming]  = useState(false);
-  const [streamText, setStreamText]   = useState('');
-  const [error, setError]             = useState<string | null>(null);
-  const [showSkills, setShowSkills]   = useState(false);
+  const [messages, setMessages]           = useState<ChatMessage[]>([]);
+  const [isStreaming, setIsStreaming]      = useState(false);
+  const [streamText, setStreamText]       = useState('');
+  const [error, setError]                 = useState<string | null>(null);
+  const [showSkills, setShowSkills]       = useState(false);
+  const [showConnect, setShowConnect]     = useState(false);
+  const [activeProvider, setActiveProvider] = useState<AiProvider>(initialProvider);
 
   const agentRef        = useRef<ChatAgent | null>(null);
   const messagesRef     = useRef<ChatMessagesHandle | null>(null);
@@ -29,9 +41,9 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
   const streamTextRef   = useRef('');
   const lastPaintRef    = useRef(0);
 
-  // One-time agent init
+  // One-time agent init (or after provider switch)
   if (!agentRef.current) {
-    try { agentRef.current = new ChatAgent(inputDir, skillsDir, workspaceDir); } catch (_) {}
+    try { agentRef.current = new ChatAgent(inputDir, skillsDir, workspaceDir, activeProvider); } catch (_) {}
   }
 
   // ── global keyboard handler (scroll, quit)
@@ -46,16 +58,27 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
       process.exit(0);
     }
 
-    // Scroll (only when not streaming and skills modal is not open)
-    if (!isStreamingRef.current && !showSkills) {
+    // Scroll (only when not streaming and no modal is open)
+    if (!isStreamingRef.current && !showSkills && !showConnect) {
       if (key.name === 'up')   { messagesRef.current?.scrollUp(3);   return; }
       if (key.name === 'down') { messagesRef.current?.scrollDown(3); return; }
     }
 
-    // Mouse wheel (OpenTUI fires these as key events with scroll name or via mousewheel)
+    // Mouse wheel
     if (key.name === 'scrollup')   { messagesRef.current?.scrollUp(3);   return; }
     if (key.name === 'scrolldown') { messagesRef.current?.scrollDown(3); return; }
   });
+
+  // ── provider switch callback
+  const handleProviderSelect = useCallback((provider: AiProvider) => {
+    setActiveProvider(provider);
+    setShowConnect(false);
+    try {
+      agentRef.current = new ChatAgent(inputDir, skillsDir, workspaceDir, provider);
+    } catch (_) {
+      agentRef.current = null;
+    }
+  }, [inputDir, skillsDir, workspaceDir]);
 
   // ── submit
   const handleSubmit = useCallback(async (text: string) => {
@@ -63,6 +86,11 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
 
     if (text.trim() === '/skills') {
       setShowSkills(true);
+      return;
+    }
+
+    if (text.trim() === '/connect') {
+      setShowConnect(true);
       return;
     }
 
@@ -106,7 +134,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
 
   return (
     <box flexDirection="column" flexGrow={1} height="100%">
-      {/* header — single text row so all spans render inline */}
+      {/* header */}
       <box border borderStyle="double" borderColor="#00CCFF" paddingLeft={2} paddingRight={2}
            flexDirection="row" justifyContent="space-between">
         <text>
@@ -114,7 +142,10 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
           <span fg="#444444">  ·  </span>
           <span fg="#888888">Meter Defect Analysis Agent</span>
         </text>
-        <text fg="#555555">chat mode</text>
+        <text>
+          <span fg="#555555">chat mode  ·  </span>
+          <span fg={activeProvider === 'azure' ? '#FFCC00' : '#00FF88'}>{PROVIDER_LABEL[activeProvider]}</span>
+        </text>
       </box>
 
       {/* conversation */}
@@ -140,7 +171,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
       <InputBox
         onSubmit={handleSubmit}
         disabled={isStreaming}
-        placeholder="Ask Neo anything... (/skills to list skills)"
+        placeholder="Ask Neo anything... (/skills · /connect)"
       />
 
       {/* skills modal overlay */}
@@ -150,6 +181,16 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
           onClose={() => setShowSkills(false)}
         />
       )}
+
+      {/* connect modal overlay */}
+      {showConnect && (
+        <ConnectModal
+          current={activeProvider}
+          onSelect={handleProviderSelect}
+          onClose={() => setShowConnect(false)}
+        />
+      )}
     </box>
   );
 }
+

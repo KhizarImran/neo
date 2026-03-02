@@ -3,6 +3,20 @@ import { basename } from 'path';
 import { imageToBase64 } from './loader.js';
 import type { Skill } from './loader.js';
 import type { DefectFinding, ImageAnalysisResult, DefectSeverity } from '../types.js';
+import type { AiProvider } from './chat.js';
+
+function resolveModel(provider: AiProvider): NonNullable<ReturnType<typeof getModel>> {
+  if (provider === 'azure') {
+    const modelId = (process.env['AZURE_MODEL_ID'] ?? 'gpt-4o') as Parameters<typeof getModel>[1];
+    const model = getModel('azure-openai-responses', modelId);
+    if (!model) throw new Error('Could not load Azure OpenAI model. Check AZURE_MODEL_ID, AZURE_OPENAI_API_KEY and AZURE_OPENAI_BASE_URL.');
+    return model;
+  }
+  const modelId = (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1];
+  const model = getModel('amazon-bedrock', modelId);
+  if (!model) throw new Error('Could not load Bedrock model. Check BEDROCK_MODEL_ID and AWS credentials.');
+  return model;
+}
 
 function buildSystemPrompt(skills: Skill[]): string {
   const skillList = skills
@@ -47,11 +61,8 @@ export async function analyseImage(
   skills: Skill[],
   onDelta?: (text: string) => void
 ): Promise<ImageAnalysisResult> {
-  const model = getModel('amazon-bedrock', (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1]);
-
-  if (!model) {
-    throw new Error('Could not load Bedrock model. Check BEDROCK_MODEL_ID and AWS credentials.');
-  }
+  const provider: AiProvider = process.env['AI_PROVIDER'] === 'azure' ? 'azure' : 'bedrock';
+  const model = resolveModel(provider);
 
   const { data, mimeType } = imageToBase64(imagePath);
   const skillContext = buildSkillContext(skills);
