@@ -10,7 +10,6 @@
   "scripts": {
     "build": "bun build src/index.tsx --outdir dist --target bun --external react-devtools-core",
     "dev": "bun run src/index.tsx",
-    "batch": "bun run src/index.tsx --batch",
     "start": "bun run dist/index.js"
   },
   "dependencies": {

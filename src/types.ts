@@ -16,22 +16,3 @@ export interface ImageAnalysisResult {
   overallSeverity: DefectSeverity;
   analysedAt: string;
 }
-
-export interface AnalysisReport {
-  generatedAt: string;
-  inputDirectory: string;
-  totalImages: number;
-  results: ImageAnalysisResult[];
-  summary: {
-    clean: number;
-    defective: number;
-    bySeverity: Record<DefectSeverity, number>;
-  };
-}
-
-export type AnalysisStatus =
-  | { type: 'idle' }
-  | { type: 'scanning' }
-  | { type: 'analysing'; current: number; total: number; imageName: string }
-  | { type: 'complete'; report: AnalysisReport }
-  | { type: 'error'; message: string };

@@ -3,7 +3,6 @@ import { createCliRenderer } from '@opentui/core';
 import { createRoot } from '@opentui/react';
 import { resolve, join } from 'path';
 import { mkdirSync } from 'fs';
-import { App } from './tui/App.js';
 import { ChatApp } from './tui/ChatApp.js';
 
 const args = process.argv.slice(2);
@@ -18,12 +17,7 @@ Usage:
 Options:
   --input  <dir>   Directory containing meter images (default: ./input)
   --skills <dir>   Directory containing skill definitions (default: ./src/skills)
-  --batch          Batch mode — press Enter to analyse all images, browse results
   --help           Show this help
-
-Modes:
-  default          Chat mode — conversational agent (default)
-  --batch          Batch mode — analyse all images at once
 
 Environment:
   AI_PROVIDER                   AI provider: bedrock (default) or azure
@@ -36,7 +30,7 @@ Environment:
   AZURE_OPENAI_BASE_URL         Azure endpoint, e.g. https://<resource>.openai.azure.com/openai/v1
   AZURE_MODEL_ID                Azure deployment name (default: gpt-4o)
 
-Keybindings (chat mode):
+Keybindings:
   Enter      Send message
   ↑/↓        Scroll conversation
   /skills    List loaded skills
@@ -44,13 +38,6 @@ Keybindings (chat mode):
   /sessions  Browse and resume past sessions
   /compact   Summarise conversation to reduce token cost
   Ctrl+C     Quit
-
-Keybindings (batch mode):
-  Enter   Start analysis
-  ↑/↓     Navigate image results
-  R       View full report
-  Esc     Back from report
-  Q       Quit
 `);
 }
 
@@ -65,9 +52,8 @@ function getArg(flag: string, fallback: string): string {
   return fallback;
 }
 
-const isBatchMode = args.includes('--batch');
-const inputDir    = getArg('--input',  resolve(process.cwd(), 'input'));
-const skillsDir   = getArg('--skills', resolve(join(
+const inputDir  = getArg('--input',  resolve(process.cwd(), 'input'));
+const skillsDir = getArg('--skills', resolve(join(
   new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'),
   '../../src/skills'
 )));
@@ -77,18 +63,12 @@ mkdirSync(workspaceDir, { recursive: true });
 
 async function main() {
   const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 });
-
   const root = createRoot(renderer);
 
-  if (isBatchMode) {
-    root.render(<App inputDir={inputDir} skillsDir={skillsDir} />);
-  } else {
-    root.render(
-      <ChatApp inputDir={inputDir} skillsDir={skillsDir} workspaceDir={workspaceDir} />,
-    );
-  }
+  root.render(
+    <ChatApp inputDir={inputDir} skillsDir={skillsDir} workspaceDir={workspaceDir} />,
+  );
 
-  // Keep the process alive until the renderer is destroyed
   await new Promise<void>((resolve) => {
     process.on('exit', resolve);
   });

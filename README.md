@@ -4,8 +4,7 @@ A terminal-based AI agent for analysing electricity meter images for defects. Bu
 
 ## Features
 
-- **Conversational chat mode** — ask Neo questions, request image analysis, or use CLI tools
-- **Batch mode** — analyse all images at once and browse results
+- **Conversational chat** — ask Neo questions, request image analysis, or use CLI tools
 - **Live streaming** — see Neo's thinking in real time via the working box
 - **Skill system** — modular defect detection skills loaded from markdown files
 - **Multi-provider** — switch between AWS Bedrock and Azure OpenAI at runtime with `/connect`
@@ -49,11 +48,8 @@ After linking, you can run `neo` from any directory.
 ## Usage
 
 ```bash
-# Chat mode (default)
+# Start the agent
 bun dev
-
-# Batch mode — analyse all images in ./input
-bun batch
 
 # Custom input/skills directories
 bun dev --input ./my-images --skills ./my-skills
@@ -62,8 +58,6 @@ bun dev --input ./my-images --skills ./my-skills
 neo
 neo --input ./my-images
 ```
-
-Place your meter images in an `input/` directory at the project root (or pass `--input <dir>`). The agent will automatically discover them.
 
 ## Chat Commands
 
@@ -165,21 +159,3 @@ src/
         ├── ConnectModal.tsx    # /connect modal
         └── SessionsModal.tsx   # /sessions modal
 ```
-
-## Batch Mode
-
-Batch mode analyses every image in the input directory against all loaded skills and presents results in a navigable TUI.
-
-```bash
-bun batch --input ./input
-```
-
-Keybindings in batch mode:
-
-| Key | Action |
-|---|---|
-| `Enter` | Start analysis |
-| `↑ / ↓` | Navigate results |
-| `R` | View full report |
-| `Esc` | Back |
-| `Q` | Quit |
