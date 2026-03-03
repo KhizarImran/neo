@@ -102,6 +102,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
     setError(null);
 
     const userMsg: ChatMessage = { role: 'user', content: text, timestamp: new Date() };
+    setMessages(prev => [...prev, userMsg]);
 
     try {
       for await (const delta of agentRef.current.sendMessage(text)) {
@@ -120,9 +121,8 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
         content: streamTextRef.current,
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setMessages(prev => [...prev, assistantMsg]);
     } catch (err) {
-      setMessages(prev => [...prev, userMsg]);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       isStreamingRef.current = false;
