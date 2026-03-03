@@ -136,12 +136,12 @@ function buildBlocks(messages: ChatMessage[], width: number): MessageBlock[] {
 }
 
 // ─── Overhead rows ────────────────────────────────────────────────────────────
-// header (double border):   3
-// messages border + title:  3
-// working box (when shown): 0 (not counted here — parent handles height)
-// input box:                3
-// total:                    9
-const OVERHEAD = 9;
+// header (double border):        3
+// messages border + title + gap: 4  (border top/bottom = 2, title = 1, gap = 1)
+// working box (when shown):      0  (not counted here — parent handles height)
+// input box:                     3
+// total:                         10
+const OVERHEAD = 10;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -288,7 +288,9 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, ChatMessagesProps>(
           </text>
         </box>
 
-        {rows}
+        <box flexDirection="column" marginTop={1}>
+          {rows}
+        </box>
       </box>
     );
   },
