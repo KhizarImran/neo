@@ -59,6 +59,8 @@ neo
 neo --input ./my-images
 ```
 
+Place your meter images in an `input/` directory at the project root (or pass `--input <dir>`). The agent will discover them automatically.
+
 ## Chat Commands
 
 | Command | Description |
@@ -140,17 +142,17 @@ NEO automatically saves every conversation to `.neo/sessions/` in your working d
 ```
 src/
 ├── index.tsx              # Entry point + CLI argument parsing
+├── types.ts               # Shared types (DefectFinding, ImageAnalysisResult, etc.)
 ├── agent/
 │   ├── chat.ts            # ChatAgent — streaming, tool loop, compact, session restore
 │   ├── analyser.ts        # Vision model calls for image analysis
 │   ├── session.ts         # SessionStore — save/load/list sessions to disk
 │   ├── skills.ts          # Skill discovery and loading
-│   ├── tools.ts           # Tool definitions (analyse_image, read_file, run_command, etc.)
-│   └── types.ts           # Shared types
+│   ├── loader.ts          # Image loading and base64 encoding
+│   └── tools.ts           # Tool definitions (analyse_image, read_file, run_command, etc.)
 ├── skills/                # Defect skill definitions (SKILL.md files)
 └── tui/
-    ├── ChatApp.tsx        # Chat mode root — state, slash commands, streaming
-    ├── App.tsx            # Batch mode root
+    ├── ChatApp.tsx        # Root — state, slash commands, streaming
     └── components/
         ├── ChatMessages.tsx    # Scrollable conversation view
         ├── WorkingBox.tsx      # Live streaming / spinner
