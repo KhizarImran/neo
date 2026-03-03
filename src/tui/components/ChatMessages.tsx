@@ -205,70 +205,37 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, ChatMessagesProps>(
     const atBottom  = scrollOffset >= maxOffset;
     const canScroll = totalLines > availableLines;
 
-    // ── Build the visible JSX rows ──────────────────────────────────────────
-    // Walk blocks, track a global line cursor, emit only rows within the
-    // [scrollOffset, scrollOffset + availableLines) window.
+    // ── Render message blocks as structured boxes ────────────────────────────
+    // Each block is a <box flexDirection="column"> with a header row and body
+    // lines. We use a negative marginTop on the messages container to implement
+    // scrolling — this avoids collapsing flat <text> siblings.
 
-    const rows: React.ReactNode[] = [];
-    let cursor = 0;          // current global line index
-    let rowKey = 0;          // unique key counter
+    const messageNodes = blocks.map((block, bi) => {
+      const isUser = block.role === 'user';
+      const headerColor = isUser ? '#00CCFF' : '#00FF88';
+      const roleLabel   = isUser ? ' You ' : ' Neo ';
 
-    const emit = (node: React.ReactNode) => { rows.push(node); rowKey++; };
-    const inView = () => cursor >= scrollOffset && cursor < scrollOffset + availableLines;
+      return (
+        <box key={bi} flexDirection="column" marginBottom={1}>
+          {/* header: role + timestamp */}
+          <text>
+            <span fg={headerColor}><strong>{roleLabel}</strong></span>
+            <span fg="#555555">{block.time}</span>
+          </text>
+          {/* body lines */}
+          {block.lines.map((line, li) => renderSegments(line, li, undefined))}
+        </box>
+      );
+    });
 
-    if (blocks.length === 0 && !isStreaming) {
-      // Empty state hint
-      const hints = [
-        'Ask Neo to analyse an image. Try:',
-        '  analyse a meter for fused neutral',
-        '  check this image for black plastic cutouts',
-        '  /skills — list available skills',
-      ];
-      for (const hint of hints) {
-        if (inView()) emit(<text key={rowKey} fg="#555555">{hint}</text>);
-        cursor++;
-      }
-    }
-
-    for (const block of blocks) {
-
-      // Header row
-      if (inView()) {
-        if (block.role === 'assistant') {
-          emit(
-            <text key={rowKey}>
-              <span fg="#00FF88"><strong> Neo </strong></span>
-              <span fg="#555555">{block.time}</span>
-            </text>
-          );
-        } else {
-          emit(
-            <text key={rowKey}>
-              <span fg="#00CCFF"><strong> You </strong></span>
-              <span fg="#555555">{block.time}</span>
-            </text>
-          );
-        }
-      }
-      cursor++;
-
-      // Body lines
-      for (const line of block.lines) {
-        if (inView()) emit(renderSegments(line, rowKey, undefined));
-        cursor++;
-      }
-
-      // Trailing gap
-      if (inView()) emit(<text key={rowKey}> </text>);
-      cursor++;
-
-      if (cursor >= scrollOffset + availableLines) break;
-    }
-
-    // Pad remaining space so the box holds its height
-    while (rows.length < availableLines) {
-      emit(<text key={rowKey}> </text>);
-    }
+    const emptyHints = blocks.length === 0 && !isStreaming ? (
+      <box flexDirection="column">
+        <text fg="#555555">Ask Neo to analyse an image. Try:</text>
+        <text fg="#555555">  analyse a meter for fused neutral</text>
+        <text fg="#555555">  check this image for black plastic cutouts</text>
+        <text fg="#555555">  /skills — list available skills</text>
+      </box>
+    ) : null;
 
     return (
       <box
@@ -281,15 +248,17 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, ChatMessagesProps>(
         overflow="hidden"
       >
         {/* title row */}
-        <box flexDirection="row" justifyContent="space-between">
+        <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <text><strong> Conversation</strong></text>
           <text fg="#555555">
             {canScroll ? (atBottom ? ' ↑ scroll ' : ' ↑↓ scroll ') : ' '}
           </text>
         </box>
 
-        <box flexDirection="column" marginTop={1}>
-          {rows}
+        {/* scrollable messages area — negative marginTop shifts content up */}
+        <box flexDirection="column" marginTop={-scrollOffset} overflow="hidden">
+          {emptyHints}
+          {messageNodes}
         </box>
       </box>
     );
