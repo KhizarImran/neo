@@ -1,12 +1,12 @@
 /**
- * ChatMessages — block-based scrollable message list.
+ * ChatMessages — scrollable message list using OpenTUI's native <scrollbox>.
  *
- * Messages are grouped into MessageBlocks. The viewport scroll operates on
- * rendered lines (each block contributes N lines). Assistant blocks are
- * wrapped in a backgroundColor box so the background fills the full width.
+ * Uses stickyScroll + stickyStart="bottom" for auto-scroll to latest message.
+ * Manual scroll via scrollBy on the ScrollBoxRenderable ref.
  */
-import { useState, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
+import { useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTerminalDimensions } from '@opentui/react';
+import type { ScrollBoxRenderable } from '@opentui/core';
 import type { ChatMessage } from '../../agent/chat.js';
 
 export interface ChatMessagesHandle {
@@ -26,14 +26,6 @@ type Segment = { text: string; bold?: boolean; color?: string };
 type RenderedLine = {
   segments: Segment[];
   isBlank?: boolean;
-};
-
-type MessageBlock = {
-  role:      'user' | 'assistant';
-  time:      string;
-  lines:     RenderedLine[];
-  /** Total rendered row count including header + body + trailing blank */
-  lineCount: number;
 };
 
 // ─── Inline markdown parser ───────────────────────────────────────────────────
@@ -109,48 +101,14 @@ function markdownToLines(content: string, width: number): RenderedLine[] {
   return out;
 }
 
-// ─── Block builder ────────────────────────────────────────────────────────────
+// ─── Render helpers ───────────────────────────────────────────────────────────
 
-function buildBlocks(messages: ChatMessage[], width: number): MessageBlock[] {
-  return messages
-    .filter((msg): msg is ChatMessage & { role: 'user' | 'assistant' } =>
-      msg.role === 'user' || msg.role === 'assistant'
-    )
-    .map(msg => {
-    const time = msg.timestamp.toLocaleTimeString();
-    let lines: RenderedLine[];
-    if (msg.role === 'user') {
-      lines = wrapWords(msg.content, width - 4).map(chunk => ({
-        segments: [{ text: '  ' + chunk, color: '#FFFFFF' }],
-      }));
-    } else {
-      lines = markdownToLines(msg.content, width);
-    }
-    return {
-      role: msg.role,
-      time,
-      lines,
-      lineCount: 1 + lines.length + 1, // header + body + trailing gap
-    };
-  });
-}
-
-// ─── Overhead rows ────────────────────────────────────────────────────────────
-// header (double border):        3
-// messages border + title + gap: 4  (border top/bottom = 2, title = 1, gap = 1)
-// working box (when shown):      0  (not counted here — parent handles height)
-// input box:                     3
-// total:                         10
-const OVERHEAD = 10;
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-function renderSegments(line: RenderedLine, key: number, bg?: string) {
+function renderSegments(line: RenderedLine, key: number) {
   if (line.isBlank || !line.segments.length) {
-    return <text key={key} bg={bg}> </text>;
+    return <text key={key}> </text>;
   }
   return (
-    <text key={key} bg={bg}>
+    <text key={key}>
       {line.segments.map((s, j) =>
         s.bold
           ? <strong key={j}><span fg={s.color ?? '#CCCCCC'}>{s.text}</span></strong>
@@ -160,82 +118,59 @@ function renderSegments(line: RenderedLine, key: number, bg?: string) {
   );
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export const ChatMessages = forwardRef<ChatMessagesHandle, ChatMessagesProps>(
   ({ messages, isStreaming }, ref) => {
     const { width: termColumns, height: termRows } = useTerminalDimensions();
+    const scrollRef = useRef<ScrollBoxRenderable | null>(null);
+    const contentWidth = Math.max(20, termColumns - 6);
 
-    const [scrollOffset, setScrollOffset] = useState(0);
-    const [manualScroll, setManualScroll]  = useState(false);
-
-    const contentWidth   = Math.max(20, termColumns - 4);
-    const availableLines = Math.max(4, termRows - OVERHEAD);
-
-    const blocks = useMemo(
-      () => buildBlocks(messages, contentWidth),
-      [messages, contentWidth],
-    );
-
-    // Total rendered line count across all blocks
-    const totalLines = useMemo(
-      () => blocks.reduce((s, b) => s + b.lineCount, 0),
-      [blocks],
-    );
-
-    const maxOffset = Math.max(0, totalLines - availableLines);
-
-    // Auto-scroll to bottom
-    useEffect(() => {
-      if (!manualScroll) setScrollOffset(maxOffset);
-    }, [totalLines, manualScroll, maxOffset]);
-
-    useEffect(() => {
-      if (scrollOffset >= maxOffset) setManualScroll(false);
-    }, [scrollOffset, maxOffset]);
+    // Calculate exact height available for the scrollbox.
+    // Overhead: header(3) + conversation border+title+gap(4) + input(3) + margin(2) = 12
+    // When streaming, WorkingBox takes ~7 more rows.
+    const scrollHeight = Math.max(4, termRows - 12 - (isStreaming ? 7 : 0));
 
     useImperativeHandle(ref, () => ({
       scrollUp(lines = 3) {
-        setManualScroll(true);
-        setScrollOffset(o => Math.max(0, o - lines));
+        scrollRef.current?.scrollBy(-lines, 'step');
       },
       scrollDown(lines = 3) {
-        setScrollOffset(o => Math.min(maxOffset, o + lines));
+        scrollRef.current?.scrollBy(lines, 'step');
       },
-    }), [maxOffset]);
+    }));
 
-    const atBottom  = scrollOffset >= maxOffset;
-    const canScroll = totalLines > availableLines;
+    const messageNodes = useMemo(() => {
+      return messages
+        .filter((m): m is ChatMessage & { role: 'user' | 'assistant' } =>
+          m.role === 'user' || m.role === 'assistant'
+        )
+        .map((msg, bi) => {
+          const isUser      = msg.role === 'user';
+          const headerColor = isUser ? '#00CCFF' : '#00FF88';
+          const roleLabel   = isUser ? ' You ' : ' Neo ';
+          const time        = msg.timestamp.toLocaleTimeString();
 
-    // ── Render message blocks as structured boxes ────────────────────────────
-    // Each block is a <box flexDirection="column"> with a header row and body
-    // lines. We use a negative marginTop on the messages container to implement
-    // scrolling — this avoids collapsing flat <text> siblings.
+          let lines: RenderedLine[];
+          if (isUser) {
+            lines = wrapWords(msg.content, contentWidth - 2).map(chunk => ({
+              segments: [{ text: '  ' + chunk, color: '#FFFFFF' }],
+            }));
+          } else {
+            lines = markdownToLines(msg.content, contentWidth);
+          }
 
-    const messageNodes = blocks.map((block, bi) => {
-      const isUser = block.role === 'user';
-      const headerColor = isUser ? '#00CCFF' : '#00FF88';
-      const roleLabel   = isUser ? ' You ' : ' Neo ';
-
-      return (
-        <box key={bi} flexDirection="column" marginBottom={1}>
-          {/* header: role + timestamp */}
-          <text>
-            <span fg={headerColor}><strong>{roleLabel}</strong></span>
-            <span fg="#555555">{block.time}</span>
-          </text>
-          {/* body lines */}
-          {block.lines.map((line, li) => renderSegments(line, li, undefined))}
-        </box>
-      );
-    });
-
-    const emptyHints = blocks.length === 0 && !isStreaming ? (
-      <box flexDirection="column">
-        <text fg="#555555">Ask Neo to analyse an image. Try:</text>
-        <text fg="#555555">  analyse a meter for fused neutral</text>
-        <text fg="#555555">  check this image for black plastic cutouts</text>
-        <text fg="#555555">  /skills — list available skills</text>
-      </box>
-    ) : null;
+          return (
+            <box key={bi} flexDirection="column" marginBottom={1}>
+              <text>
+                <span fg={headerColor}><strong>{roleLabel}</strong></span>
+                <span fg="#555555">{time}</span>
+              </text>
+              {lines.map((line, li) => renderSegments(line, li))}
+            </box>
+          );
+        });
+    }, [messages, contentWidth]);
 
     return (
       <box
@@ -250,16 +185,29 @@ export const ChatMessages = forwardRef<ChatMessagesHandle, ChatMessagesProps>(
         {/* title row */}
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <text><strong> Conversation</strong></text>
-          <text fg="#555555">
-            {canScroll ? (atBottom ? ' ↑ scroll ' : ' ↑↓ scroll ') : ' '}
-          </text>
+          <text fg="#555555"> ↑↓ scroll </text>
         </box>
 
-        {/* scrollable messages area — negative marginTop shifts content up */}
-        <box flexDirection="column" marginTop={-scrollOffset} overflow="hidden">
-          {emptyHints}
-          {messageNodes}
-        </box>
+        {/* native scrollbox — hard height so it never overflows the terminal */}
+        <scrollbox
+          ref={scrollRef as any}
+          height={scrollHeight}
+          stickyScroll={true}
+          stickyStart="bottom"
+          scrollY={true}
+          scrollX={false}
+          viewportCulling={true}
+          focused={false}
+        >
+          {messages.length === 0 && !isStreaming ? (
+            <box flexDirection="column">
+              <text fg="#555555">Ask Neo to analyse an image. Try:</text>
+              <text fg="#555555">  analyse a meter for fused neutral</text>
+              <text fg="#555555">  check this image for black plastic cutouts</text>
+              <text fg="#555555">  /skills — list available skills</text>
+            </box>
+          ) : messageNodes}
+        </scrollbox>
       </box>
     );
   },

@@ -1,9 +1,24 @@
 import { readdirSync, statSync, existsSync, readFileSync, writeFileSync, copyFileSync, renameSync, unlinkSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { resolve, join, dirname, extname, basename } from 'path';
 import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { Type } from '@mariozechner/pi-ai';
 import type { Tool, ToolResultMessage } from '@mariozechner/pi-ai';
+import { loadSkills, imageToBase64 } from './loader.js';
+import { analyseImage } from './analyser.js';
+import type { AiProvider } from './chat.js';
+
+// ── Binary file detection ─────────────────────────────────────────────────────
+
+const BINARY_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.ico',
+  '.pdf', '.zip', '.gz', '.tar', '.rar', '.7z', '.exe', '.dll', '.bin',
+  '.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.woff', '.woff2', '.ttf',
+]);
+
+function isBinaryPath(filePath: string): boolean {
+  return BINARY_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
@@ -84,7 +99,25 @@ const httpRequestTool: Tool = {
   }),
 };
 
+const analyseImageWithSkillTool: Tool = {
+  name: 'analyse_image_with_skill',
+  description:
+    'Analyse a meter image for defects using a specific skill. ' +
+    'Provide the image filename (or partial name) and the skill name. ' +
+    'The tool loads the image and skill, runs visual AI analysis, and returns structured findings. ' +
+    'Use this whenever the user asks to analyse an image or check for a specific defect type.',
+  parameters: Type.Object({
+    image: Type.String({
+      description: 'Image filename or partial filename (e.g. "1c68dfae.jpg" or "1c68dfae"). Fuzzy-matched against available images.',
+    }),
+    skill: Type.String({
+      description: 'Skill name to apply (e.g. "Asbestos", "Black Plastic Cutout"). Fuzzy-matched against loaded skills.',
+    }),
+  }),
+};
+
 export const TOOLS: Tool[] = [
+  analyseImageWithSkillTool,
   listDirectoryTool,
   readFileTool,
   writeFileTool,
@@ -97,12 +130,15 @@ export const TOOLS: Tool[] = [
 
 // ── Tool execution ────────────────────────────────────────────────────────────
 
-export function executeTool(
+export async function executeTool(
   toolCallId: string,
   toolName: string,
   args: Record<string, any>,
   workspaceDir: string,
-): ToolResultMessage {
+  inputDir?: string,
+  skillsDir?: string,
+  provider?: AiProvider,
+): Promise<ToolResultMessage> {
   const timestamp = Date.now();
 
   try {
@@ -130,6 +166,7 @@ export function executeTool(
         const resolved = resolve(args['path']);
         if (!existsSync(resolved)) return toolError(toolCallId, toolName, `File not found: ${resolved}`, timestamp);
         if (statSync(resolved).isDirectory()) return toolError(toolCallId, toolName, `Path is a directory: ${resolved}`, timestamp);
+        if (isBinaryPath(resolved)) return toolError(toolCallId, toolName, `Cannot read binary file: ${resolved}. Use image analysis tools for images.`, timestamp);
 
         const raw    = readFileSync(resolved, 'utf-8');
         const lines  = raw.split('\n');
@@ -179,6 +216,7 @@ export function executeTool(
         const command = args['command'] as string;
         const cwd     = args['cwd'] ? resolve(args['cwd']) : workspaceDir;
         const timeout = args['timeout'] ?? 10000;
+        const MAX_OUTPUT_CHARS = 3000;
         try {
           const output = execSync(command, {
             cwd,
@@ -186,14 +224,20 @@ export function executeTool(
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
           });
-          return toolOk(toolCallId, toolName, output || '(no output)', timestamp);
+          const trimmed = output.length > MAX_OUTPUT_CHARS
+            ? output.slice(0, MAX_OUTPUT_CHARS) + `\n... (truncated — ${output.length - MAX_OUTPUT_CHARS} more chars)`
+            : output;
+          return toolOk(toolCallId, toolName, trimmed || '(no output)', timestamp);
         } catch (err: any) {
-          // execSync throws on non-zero exit — still return stdout+stderr
           const stdout = err.stdout ?? '';
           const stderr = err.stderr ?? '';
           const combined = [stdout, stderr].filter(Boolean).join('\n');
+          const msg = combined || err.message;
+          const trimmed = msg.length > MAX_OUTPUT_CHARS
+            ? msg.slice(0, MAX_OUTPUT_CHARS) + `\n... (truncated)`
+            : msg;
           return toolError(toolCallId, toolName,
-            `Exit code ${err.status ?? '?'}:\n${combined || err.message}`, timestamp);
+            `Exit code ${err.status ?? '?'}:\n${trimmed}`, timestamp);
         }
       }
 
@@ -209,6 +253,88 @@ export function executeTool(
           ? toolError(toolCallId, toolName, result.error, timestamp)
           : toolOk(toolCallId, toolName,
               `HTTP ${result.status}\n\n${result.body}`, timestamp);
+      }
+
+      case 'analyse_image_with_skill': {
+        const imageQuery = (args['image'] as string ?? '').toLowerCase();
+        const skillQuery = (args['skill'] as string ?? '').toLowerCase();
+
+        // ── Resolve image path ──────────────────────────────────────────────
+        const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff']);
+
+        // Collect all images recursively under inputDir (or cwd as fallback)
+        const searchDir = inputDir ?? resolve('input');
+        const allImages: string[] = [];
+        const collectImages = (dir: string) => {
+          if (!existsSync(dir)) return;
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) collectImages(full);
+            else if (IMAGE_EXTS.has(extname(entry.name).toLowerCase())) allImages.push(full);
+          }
+        };
+        collectImages(searchDir);
+
+        if (allImages.length === 0) {
+          return toolError(toolCallId, toolName, `No images found in ${searchDir}.`, timestamp);
+        }
+
+        // Exact then fuzzy match on filename
+        const matchedImage =
+          allImages.find(p => basename(p).toLowerCase() === imageQuery) ??
+          allImages.find(p => basename(p).toLowerCase().includes(imageQuery)) ??
+          allImages.find(p => imageQuery.includes(basename(p, extname(p)).toLowerCase()));
+
+        if (!matchedImage) {
+          const available = allImages.map(p => basename(p)).join(', ');
+          return toolError(toolCallId, toolName,
+            `Image not found: "${args['image']}". Available images: ${available}`, timestamp);
+        }
+
+        // ── Resolve skill ───────────────────────────────────────────────────
+        const skillsSearchDir = skillsDir ?? resolve('src/skills');
+        const skills = loadSkills(skillsSearchDir);
+
+        if (skills.length === 0) {
+          return toolError(toolCallId, toolName, `No skills found in ${skillsSearchDir}.`, timestamp);
+        }
+
+        const matchedSkill =
+          skills.find(s => s.name.toLowerCase() === skillQuery) ??
+          skills.find(s => s.name.toLowerCase().includes(skillQuery)) ??
+          skills.find(s => skillQuery.includes(s.name.toLowerCase()));
+
+        if (!matchedSkill) {
+          const available = skills.map(s => s.name).join(', ');
+          return toolError(toolCallId, toolName,
+            `Skill not found: "${args['skill']}". Available skills: ${available}`, timestamp);
+        }
+
+        // ── Run analysis ────────────────────────────────────────────────────
+        try {
+          const result = await analyseImage(matchedImage, [matchedSkill], undefined, provider);
+
+          // Format findings as readable text for the model
+          const lines: string[] = [
+            `Analysis: ${basename(matchedImage)} × ${matchedSkill.name}`,
+            `Overall severity: ${result.overallSeverity.toUpperCase()}`,
+            `Summary: ${result.summary}`,
+            '',
+          ];
+          for (const f of result.findings) {
+            lines.push(`Skill: ${f.skillName}`);
+            lines.push(`  Detected: ${f.detected ? 'YES' : 'NO'}`);
+            lines.push(`  Severity: ${f.severity}`);
+            lines.push(`  Confidence: ${f.confidence}%`);
+            lines.push(`  Description: ${f.description}`);
+            lines.push('');
+          }
+
+          return toolOk(toolCallId, toolName, lines.join('\n'), timestamp);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return toolError(toolCallId, toolName, `Analysis failed: ${msg}`, timestamp);
+        }
       }
 
       default:

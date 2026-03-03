@@ -41,6 +41,7 @@ Keybindings (chat mode):
   ↑/↓        Scroll conversation
   /skills    List loaded skills
   /connect   Switch AI provider (AWS Bedrock ↔ Azure OpenAI)
+  /sessions  Browse and resume past sessions
   Ctrl+C     Quit
 
 Keybindings (batch mode):

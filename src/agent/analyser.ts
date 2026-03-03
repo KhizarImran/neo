@@ -25,7 +25,7 @@ function buildSystemPrompt(skills: Skill[]): string {
 
   return `You are Neo, an expert meter image defect analysis agent.
 
-Your job is to analyse meter images for defects. For each image you will be given:
+Your job is to analyse meter images for defects. These can be in the input folder or the user may give you the target folder which contains the images. Always check the input direcotry. For each image you will be given:
 1. The image itself
 2. A set of defect skill definitions describing what to look for
 
@@ -59,10 +59,11 @@ function buildSkillContext(skills: Skill[]): string {
 export async function analyseImage(
   imagePath: string,
   skills: Skill[],
-  onDelta?: (text: string) => void
+  onDelta?: (text: string) => void,
+  provider?: AiProvider,
 ): Promise<ImageAnalysisResult> {
-  const provider: AiProvider = process.env['AI_PROVIDER'] === 'azure' ? 'azure' : 'bedrock';
-  const model = resolveModel(provider);
+  const resolvedProvider: AiProvider = provider ?? (process.env['AI_PROVIDER'] === 'azure' ? 'azure' : 'bedrock');
+  const model = resolveModel(resolvedProvider);
 
   const { data, mimeType } = imageToBase64(imagePath);
   const skillContext = buildSkillContext(skills);
