@@ -14,6 +14,7 @@ const COMMANDS = [
   { cmd: '/skills',   desc: 'List loaded defect skills' },
   { cmd: '/connect',  desc: 'Switch AI provider' },
   { cmd: '/sessions', desc: 'Browse and resume past sessions' },
+  { cmd: '/compact',  desc: 'Summarise conversation to reduce token cost' },
 ];
 
 export function InputBox({ onSubmit, disabled = false, placeholder = 'Type a message...' }: InputBoxProps) {

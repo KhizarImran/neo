@@ -120,6 +120,29 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
     if (text.trim() === '/connect')  { setShowConnect(true);  return; }
     if (text.trim() === '/sessions') { setShowSessions(true); return; }
 
+    if (text.trim() === '/compact') {
+      if (!agentRef.current) return;
+      isStreamingRef.current = true;
+      setIsStreaming(true);
+      setError(null);
+      try {
+        const summary = await agentRef.current.compact();
+        const compactMsg: ChatMessage = {
+          role:      'assistant',
+          content:   `**Conversation compacted.** Previous context replaced with summary:\n\n${summary}`,
+          timestamp: new Date(),
+        };
+        setMessages([compactMsg]);
+        agentRef.current.persistMessages([compactMsg]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+      }
+      return;
+    }
+
     isStreamingRef.current = true;
     setIsStreaming(true);
     streamTextRef.current = '';
@@ -204,7 +227,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
       <InputBox
         onSubmit={handleSubmit}
         disabled={isStreaming}
-        placeholder="Ask Neo anything... (/skills · /connect · /sessions)"
+        placeholder="Ask Neo anything... (/skills · /connect · /sessions · /compact)"
       />
 
       {/* modals */}

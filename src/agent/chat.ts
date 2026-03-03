@@ -1,4 +1,4 @@
-import { getModel, stream, type Context } from '@mariozechner/pi-ai';
+import { getModel, stream, complete, type Context } from '@mariozechner/pi-ai';
 import { readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 import { loadSkills } from './loader.js';
@@ -123,12 +123,41 @@ export class ChatAgent {
     this.store        = store ?? new SessionStore(join(workspaceDir, '..', 'sessions'));
     this.sessionId    = sessionId ?? this.store.create();
 
-    // Restore TUI messages from session — context starts fresh (no binary data stored)
     this.context = {
       systemPrompt: buildSystemPrompt(skillsDir, inputDir, workspaceDir),
       messages: [],
       tools: TOOLS,
     };
+
+    // If resuming a session, restore the last 10 messages into context
+    // so the model has memory of the recent conversation.
+    if (sessionId) {
+      const session = this.store.load(sessionId);
+      if (session && session.messages.length > 0) {
+        const recent = session.messages.slice(-10);
+        for (const m of recent) {
+          if (m.role === 'user') {
+            this.context.messages.push({
+              role:      'user',
+              content:   m.content,
+              timestamp: new Date(m.timestamp).getTime(),
+            });
+          } else {
+            // Reconstruct a minimal AssistantMessage shape pi-ai will accept
+            this.context.messages.push({
+              role:      'assistant',
+              content:   [{ type: 'text', text: m.content }],
+              api:       'bedrock-converse-stream',
+              provider:  this.provider === 'azure' ? 'azure-openai-responses' : 'amazon-bedrock',
+              model:     this.model.id,
+              usage:     { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+              stopReason: 'stop',
+              timestamp: new Date(m.timestamp).getTime(),
+            } as any);
+          }
+        }
+      }
+    }
   }
 
   get currentSessionId(): string { return this.sessionId; }
@@ -149,8 +178,73 @@ export class ChatAgent {
         content:   m.content,
         timestamp: m.timestamp.toISOString(),
       }));
-    if (stored.length === 0) return; // nothing to save yet
+    if (stored.length === 0) return;
     this.store.save(this.sessionId, stored);
+  }
+
+  /**
+   * Summarise the current conversation context into a single compact message.
+   * Replaces context.messages with one synthetic entry containing the summary.
+   * Returns the summary text so ChatApp can update the TUI message list.
+   */
+  async compact(): Promise<string> {
+    if (this.context.messages.length === 0) {
+      return 'Nothing to compact — conversation is empty.';
+    }
+
+    const compactContext: Context = {
+      systemPrompt: 'You are a summarisation assistant.',
+      messages: [
+        {
+          role: 'user',
+          content: `Summarise the following conversation concisely. Capture:
+- Key topics discussed
+- Any images analysed and their findings (skill, severity, key observations)
+- Any tool actions taken and their outcomes
+- Any decisions or conclusions reached
+
+Keep the summary factual and compact. Do not include pleasantries.
+
+Conversation to summarise:
+${this.context.messages
+  .map(m => {
+    if (m.role === 'user') {
+      const content = typeof m.content === 'string' ? m.content
+        : (m.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ');
+      return `User: ${content}`;
+    }
+    if (m.role === 'assistant') {
+      const content = Array.isArray(m.content)
+        ? (m.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
+        : '';
+      return `Neo: ${content}`;
+    }
+    return null;
+  })
+  .filter(Boolean)
+  .join('\n')}`,
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    const response = await complete(this.model, compactContext);
+    let summary = '';
+    for (const block of response.content) {
+      if (block.type === 'text') summary += block.text;
+    }
+    summary = summary.trim();
+
+    // Replace context with a single synthetic message containing the summary
+    this.context.messages = [
+      {
+        role:      'user',
+        content:   `[Conversation summary — previous context compacted]\n\n${summary}`,
+        timestamp: Date.now(),
+      },
+    ];
+
+    return summary;
   }
 
   async *sendMessage(userText: string): AsyncGenerator<string, void, unknown> {
