@@ -9,6 +9,8 @@ A terminal-based AI agent for analysing electricity meter images for defects. Bu
 - **Live streaming** — see Neo's thinking in real time via the working box
 - **Skill system** — modular defect detection skills loaded from markdown files
 - **Multi-provider** — switch between AWS Bedrock and Azure OpenAI at runtime with `/connect`
+- **Session persistence** — conversations are saved and resumable across restarts
+- **Context compaction** — `/compact` summarises the conversation to reduce token cost
 
 ## Requirements
 
@@ -18,8 +20,31 @@ A terminal-based AI agent for analysing electricity meter images for defects. Bu
 ## Installation
 
 ```bash
+# 1. Install Bun (if not already installed)
+curl -fsSL https://bun.sh/install | bash
+
+# 2. Clone the repository
+git clone https://github.com/khizarimran/neo.git
+cd neo
+
+# 3. Install dependencies
 bun install
+
+# 4. Configure credentials
+cp .env.example .env
+# Edit .env with your AWS or Azure credentials
 ```
+
+### Optional: global `neo` command
+
+To run `neo` from anywhere in your terminal:
+
+```bash
+bun run build
+bun link
+```
+
+After linking, you can run `neo` from any directory.
 
 ## Usage
 
@@ -32,16 +57,26 @@ bun batch
 
 # Custom input/skills directories
 bun dev --input ./my-images --skills ./my-skills
+
+# If globally linked
+neo
+neo --input ./my-images
 ```
+
+Place your meter images in an `input/` directory at the project root (or pass `--input <dir>`). The agent will automatically discover them.
 
 ## Chat Commands
 
 | Command | Description |
 |---|---|
 | `/skills` | List all loaded defect skills |
-| `/connect` | Switch AI provider (AWS Bedrock ↔ Azure OpenAI) |
+| `/connect` | Switch AI provider (AWS Bedrock ↔ Azure OpenAI) at runtime |
+| `/sessions` | Browse and resume past conversations |
+| `/compact` | Summarise conversation to reduce token cost |
 | `↑ / ↓` | Scroll conversation history |
 | `Ctrl+C` | Quit |
+
+Typing `/` in the input box shows an autocomplete popup for all available commands.
 
 ## Configuration
 
@@ -52,7 +87,7 @@ Copy `.env.example` to `.env` and fill in credentials for your chosen provider.
 ```env
 AI_PROVIDER=bedrock
 AWS_PROFILE=your-profile
-# or
+# or use access keys directly
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
@@ -96,24 +131,39 @@ description: Detects XYZ defects in meter images
 ...
 ```
 
-New skills are picked up automatically — no code changes needed.
+New skills are picked up automatically — no code changes needed, just add a new subdirectory with a `SKILL.md`.
+
+## Sessions
+
+NEO automatically saves every conversation to `.neo/sessions/` in your working directory. Sessions are stored as JSON files, one per conversation.
+
+- `/sessions` — open the sessions browser to resume a past conversation
+- Resuming a session restores the last 10 messages into the model's context for memory continuity
+- `/compact` — if a conversation grows long, this summarises it into a single context entry to reduce token usage and cost
 
 ## Project Structure
 
 ```
 src/
-├── index.tsx              # Entry point
+├── index.tsx              # Entry point + CLI argument parsing
 ├── agent/
-│   ├── chat.ts            # ChatAgent — intent classification, streaming, tool loop
-│   ├── analyser.ts        # Batch image analyser
-│   ├── loader.ts          # Skill + image loader
-│   ├── runner.ts          # Batch mode orchestrator
-│   └── tools.ts           # CLI tools (file, shell, HTTP)
-├── skills/                # Defect skill definitions
+│   ├── chat.ts            # ChatAgent — streaming, tool loop, compact, session restore
+│   ├── analyser.ts        # Vision model calls for image analysis
+│   ├── session.ts         # SessionStore — save/load/list sessions to disk
+│   ├── skills.ts          # Skill discovery and loading
+│   ├── tools.ts           # Tool definitions (analyse_image, read_file, run_command, etc.)
+│   └── types.ts           # Shared types
+├── skills/                # Defect skill definitions (SKILL.md files)
 └── tui/
-    ├── ChatApp.tsx        # Chat mode root
+    ├── ChatApp.tsx        # Chat mode root — state, slash commands, streaming
     ├── App.tsx            # Batch mode root
-    └── components/        # UI components
+    └── components/
+        ├── ChatMessages.tsx    # Scrollable conversation view
+        ├── WorkingBox.tsx      # Live streaming / spinner
+        ├── InputBox.tsx        # Input + slash command autocomplete
+        ├── SkillsModal.tsx     # /skills modal
+        ├── ConnectModal.tsx    # /connect modal
+        └── SessionsModal.tsx   # /sessions modal
 ```
 
 ## Batch Mode
