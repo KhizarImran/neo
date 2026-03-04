@@ -20,7 +20,7 @@ function resolveModel(provider: AiProvider): Model<any> {
       input:         ['text', 'image'],
       cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 128000,
-      maxTokens:     16384,
+      maxTokens:     65536,
       compat: {
         maxTokensField:        'max_completion_tokens',
         supportsDeveloperRole: false,
@@ -34,10 +34,16 @@ function resolveModel(provider: AiProvider): Model<any> {
   return model;
 }
 
-function buildSystemPrompt(skills: Skill[]): string {
+function buildSystemPrompt(skills: Skill[], provider?: AiProvider): string {
   const skillList = skills
     .map(s => `- **${s.name}**: ${s.description}`)
     .join('\n');
+
+  // gpt-5.x on Azure is a reasoning model. Without this hint it spends all its
+  // token budget thinking and returns empty content. This suppresses reasoning
+  // so the model outputs the JSON response directly.
+  // See: https://community.openai.com/t/need-reasoning-false-option-for-gpt-5/1351588
+  const reasoningHint = provider === 'azure' ? '\n\n# Juice: 0 !important' : '';
 
   return `You are Neo, an expert meter image defect analysis agent.
 
@@ -63,7 +69,7 @@ Response format (strict JSON):
   ],
   "summary": "<one sentence overall summary>",
   "overallSeverity": "<none|low|medium|high|critical>"
-}`;
+}${reasoningHint}`;
 }
 
 function buildSkillContext(skills: Skill[]): string {
@@ -85,7 +91,7 @@ export async function analyseImage(
   const skillContext = buildSkillContext(skills);
 
   const response = await complete(model, {
-    systemPrompt: buildSystemPrompt(skills),
+    systemPrompt: buildSystemPrompt(skills, resolvedProvider),
     messages: [
       {
         role: 'user',
@@ -103,6 +109,9 @@ export async function analyseImage(
         ],
       },
     ],
+  }, {
+    // Pass API key explicitly for Azure (the openai-completions provider reads it from options)
+    apiKey: process.env['AZURE_OPENAI_API_KEY'],
   });
 
   // Extract text from response
@@ -117,9 +126,14 @@ export async function analyseImage(
   // Parse JSON response
   let parsed: { findings: DefectFinding[]; summary: string; overallSeverity: DefectSeverity };
   try {
+    if (!rawText.trim()) throw new Error('Model returned empty response');
     // Strip any accidental markdown fences
     const cleaned = rawText.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
     parsed = JSON.parse(cleaned);
+    // Ensure required fields exist
+    if (!parsed.overallSeverity) parsed.overallSeverity = 'none';
+    if (!parsed.summary) parsed.summary = '(no summary provided)';
+    if (!Array.isArray(parsed.findings)) parsed.findings = [];
   } catch {
     // Fallback if model doesn't return clean JSON
     parsed = {

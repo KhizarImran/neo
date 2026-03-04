@@ -317,11 +317,11 @@ export async function executeTool(
           // Format findings as readable text for the model
           const lines: string[] = [
             `Analysis: ${basename(matchedImage)} × ${matchedSkill.name}`,
-            `Overall severity: ${result.overallSeverity.toUpperCase()}`,
-            `Summary: ${result.summary}`,
+            `Overall severity: ${(result.overallSeverity ?? 'unknown').toUpperCase()}`,
+            `Summary: ${result.summary ?? '(no summary)'}`,
             '',
           ];
-          for (const f of result.findings) {
+          for (const f of result.findings ?? []) {
             lines.push(`Skill: ${f.skillName}`);
             lines.push(`  Detected: ${f.detected ? 'YES' : 'NO'}`);
             lines.push(`  Severity: ${f.severity}`);
