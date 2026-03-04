@@ -5,6 +5,26 @@ import { resolve, join } from 'path';
 import { mkdirSync } from 'fs';
 import { ChatApp } from './tui/ChatApp.js';
 
+// ── Azure Cognitive Services fetch patch ──────────────────────────────────────
+// The OpenAI SDK strips query strings from baseURL, but Azure Cognitive Services
+// requires `api-version` as a query parameter on every request. We patch the
+// global fetch to inject it automatically for any Cognitive Services endpoint,
+// regardless of which provider is active at startup (supports runtime /connect switching).
+const _azureApiVersion = process.env['AZURE_OPENAI_API_VERSION'] ?? '2024-12-01-preview';
+const _origFetch = globalThis.fetch;
+globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  const href = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+  const url = new URL(href);
+  if (url.hostname.endsWith('cognitiveservices.azure.com') && !url.searchParams.has('api-version')) {
+    url.searchParams.set('api-version', _azureApiVersion);
+    input = typeof input === 'string' ? url.toString()
+          : input instanceof URL      ? url
+          :                             new Request(url.toString(), input as Request);
+  }
+  return _origFetch(input as Parameters<typeof fetch>[0], init);
+}) as typeof fetch;
+// ─────────────────────────────────────────────────────────────────────────────
+
 const args = process.argv.slice(2);
 
 function printHelp() {

@@ -1,16 +1,32 @@
-import { getModel, complete } from '@mariozechner/pi-ai';
+import { getModel, complete, type Model } from '@mariozechner/pi-ai';
 import { basename } from 'path';
 import { imageToBase64 } from './loader.js';
 import type { Skill } from './loader.js';
 import type { DefectFinding, ImageAnalysisResult, DefectSeverity } from '../types.js';
 import type { AiProvider } from './chat.js';
 
-function resolveModel(provider: AiProvider): NonNullable<ReturnType<typeof getModel>> {
+function resolveModel(provider: AiProvider): Model<any> {
   if (provider === 'azure') {
-    const modelId = (process.env['AZURE_MODEL_ID'] ?? 'gpt-4o') as Parameters<typeof getModel>[1];
-    const model = getModel('azure-openai-responses', modelId);
-    if (!model) throw new Error('Could not load Azure OpenAI model. Check AZURE_MODEL_ID, AZURE_OPENAI_API_KEY and AZURE_OPENAI_BASE_URL.');
-    return model;
+    const modelId = process.env['AZURE_MODEL_ID'] ?? 'gpt-4o';
+    const baseUrl = process.env['AZURE_OPENAI_BASE_URL'];
+    if (!baseUrl) throw new Error('AZURE_OPENAI_BASE_URL is required for Azure provider.');
+    const customModel: Model<'openai-completions'> = {
+      id:            modelId,
+      name:          modelId,
+      api:           'openai-completions',
+      provider:      'azure-openai-responses',
+      baseUrl:       `${baseUrl.replace(/\/+$/, '')}/deployments/${modelId}`,
+      reasoning:     false,
+      input:         ['text', 'image'],
+      cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens:     16384,
+      compat: {
+        maxTokensField:        'max_completion_tokens',
+        supportsDeveloperRole: false,
+      },
+    };
+    return customModel;
   }
   const modelId = (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1];
   const model = getModel('amazon-bedrock', modelId);

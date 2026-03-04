@@ -1,4 +1,4 @@
-import { getModel, stream, complete, type Context } from '@mariozechner/pi-ai';
+import { getModel, stream, complete, type Context, type Model } from '@mariozechner/pi-ai';
 import { readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 import { loadSkills } from './loader.js';
@@ -71,12 +71,31 @@ For all other messages, respond conversationally and helpfully.`;
 
 export type AiProvider = 'bedrock' | 'azure';
 
-function resolveModel(provider: AiProvider): NonNullable<ReturnType<typeof getModel>> {
+function resolveModel(provider: AiProvider): Model<any> {
   if (provider === 'azure') {
-    const modelId = (process.env['AZURE_MODEL_ID'] ?? 'gpt-4o') as Parameters<typeof getModel>[1];
-    const model = getModel('azure-openai-responses', modelId);
-    if (!model) throw new Error('Could not load Azure OpenAI model. Check AZURE_MODEL_ID, AZURE_OPENAI_API_KEY and AZURE_OPENAI_BASE_URL.');
-    return model;
+    const modelId = process.env['AZURE_MODEL_ID'] ?? 'gpt-4o';
+    const baseUrl = process.env['AZURE_OPENAI_BASE_URL'];
+    if (!baseUrl) throw new Error('AZURE_OPENAI_BASE_URL is required for Azure provider.');
+    // Build a custom model using the openai-completions API, which maps to the
+    // chat/completions endpoint — compatible with Azure Cognitive Services deployments
+    // that do not support the newer Responses API.
+    const customModel: Model<'openai-completions'> = {
+      id:            modelId,
+      name:          modelId,
+      api:           'openai-completions',
+      provider:      'azure-openai-responses',
+      baseUrl:       `${baseUrl.replace(/\/+$/, '')}/deployments/${modelId}`,
+      reasoning:     false,
+      input:         ['text', 'image'],
+      cost:          { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens:     16384,
+      compat: {
+        maxTokensField:        'max_completion_tokens',
+        supportsDeveloperRole: false,
+      },
+    };
+    return customModel;
   }
   const modelId = (process.env['BEDROCK_MODEL_ID'] ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0') as Parameters<typeof getModel>[1];
   const model = getModel('amazon-bedrock', modelId);
@@ -97,7 +116,7 @@ export interface ChatMessage {
 
 export class ChatAgent {
   private context: Context;
-  private model: NonNullable<ReturnType<typeof getModel>>;
+  private model: Model<any>;
   private inputDir: string;
   private skillsDir: string;
   private workspaceDir: string;
@@ -147,7 +166,7 @@ export class ChatAgent {
             this.context.messages.push({
               role:      'assistant',
               content:   [{ type: 'text', text: m.content }],
-              api:       'bedrock-converse-stream',
+              api:       'openai-completions',
               provider:  this.provider === 'azure' ? 'azure-openai-responses' : 'amazon-bedrock',
               model:     this.model.id,
               usage:     { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -265,15 +284,24 @@ ${this.context.messages
   private async *streamWithTools(ctx: Context): AsyncGenerator<string, void, unknown> {
     // Tool-call loop: keep going until the model stops calling tools
     while (true) {
-      const s = stream(this.model, ctx);
+      const s = stream(this.model, ctx, {
+        apiKey: process.env['AZURE_OPENAI_API_KEY'],
+      });
       let toolCalls: import('@mariozechner/pi-ai').ToolCall[] = [];
 
       for await (const event of s) {
         if (event.type === 'text_delta') yield event.delta;
         if (event.type === 'toolcall_end') toolCalls.push(event.toolCall);
+        if (event.type === 'error') {
+          const msg = event.error.errorMessage ?? 'Unknown error from AI provider';
+          throw new Error(msg);
+        }
       }
 
       const final = await s.result();
+      if (final.stopReason === 'error') {
+        throw new Error(final.errorMessage ?? 'AI provider returned an error with no message');
+      }
       ctx.messages.push(final);
 
       if (final.stopReason !== 'toolUse' || toolCalls.length === 0) break;
