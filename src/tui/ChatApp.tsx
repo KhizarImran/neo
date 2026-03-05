@@ -47,6 +47,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
   const [showSessions, setShowSessions]     = useState(false);
   const [activeProvider, setActiveProvider] = useState<AiProvider>(initialProvider);
   const [sessionTitle, setSessionTitle]     = useState<string>('new session');
+  const [deleteCount, setDeleteCount]       = useState(0);
 
   const agentRef        = useRef<ChatAgent | null>(null);
   const messagesRef     = useRef<ChatMessagesHandle | null>(null);
@@ -95,6 +96,21 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
     } catch (_) { agentRef.current = null; }
   }, [inputDir, skillsDir, workspaceDir, activeProvider]);
 
+  // ── delete a session
+  const handleSessionDelete = useCallback((session: SessionRecord) => {
+      storeRef.current.delete(session.id);
+    setDeleteCount(c => c + 1);
+    // If the deleted session is the active one, start a fresh session
+    if (session.id === agentRef.current?.currentSessionId) {
+      setMessages([]);
+      setSessionTitle('new session');
+      setError(null);
+      try {
+        agentRef.current = new ChatAgent(inputDir, skillsDir, workspaceDir, activeProvider, storeRef.current);
+      } catch (_) { agentRef.current = null; }
+    }
+  }, [inputDir, skillsDir, workspaceDir, activeProvider]);
+
   // ── start a new session
   const handleNewSession = useCallback(() => {
     setShowSessions(false);
@@ -106,11 +122,11 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
     } catch (_) { agentRef.current = null; }
   }, [inputDir, skillsDir, workspaceDir, activeProvider]);
 
-  // ── sessions list (refreshed each time modal opens)
+  // ── sessions list (refreshed each time modal opens or a session is deleted)
   const sessionsList = useMemo(() => {
     if (!showSessions) return [];
     return storeRef.current.list();
-  }, [showSessions]);
+  }, [showSessions, deleteCount]);
 
   // ── submit
   const handleSubmit = useCallback(async (text: string) => {
@@ -242,6 +258,7 @@ export function ChatApp({ inputDir, skillsDir, workspaceDir }: ChatAppProps) {
           sessions={sessionsList}
           currentId={currentSessionId}
           onResume={handleSessionResume}
+          onDelete={handleSessionDelete}
           onNew={handleNewSession}
           onClose={() => setShowSessions(false)}
         />

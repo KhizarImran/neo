@@ -6,6 +6,7 @@ interface SessionsModalProps {
   sessions:  SessionRecord[];
   currentId: string;
   onResume:  (session: SessionRecord) => void;
+  onDelete:  (session: SessionRecord) => void;
   onNew:     () => void;
   onClose:   () => void;
 }
@@ -18,14 +19,30 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function SessionsModal({ sessions, currentId, onResume, onNew, onClose }: SessionsModalProps) {
+export function SessionsModal({ sessions, currentId, onResume, onDelete, onNew, onClose }: SessionsModalProps) {
   const { width, height } = useTerminalDimensions();
 
   // 0 = "New session" option, 1..n = existing sessions
   const total = sessions.length + 1;
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor]         = useState(0);
+  const [confirmId, setConfirmId]   = useState<string | null>(null);
 
   useKeyboard((key) => {
+    // ── Confirm-delete mode ──────────────────────────────────────────────────
+    if (confirmId !== null) {
+      if (key.name === 'y') {
+        const s = sessions.find(s => s.id === confirmId);
+        if (s) onDelete(s);
+        setConfirmId(null);
+        // Move cursor up if it would be out of bounds after deletion
+        setCursor(c => Math.max(0, Math.min(c, sessions.length - 1)));
+      } else {
+        setConfirmId(null);
+      }
+      return;
+    }
+
+    // ── Normal mode ──────────────────────────────────────────────────────────
     if (key.name === 'escape' || key.name === 'q') { onClose(); return; }
     if (key.name === 'up')   { setCursor(c => (c - 1 + total) % total); return; }
     if (key.name === 'down') { setCursor(c => (c + 1) % total); return; }
@@ -33,11 +50,20 @@ export function SessionsModal({ sessions, currentId, onResume, onNew, onClose }:
       if (cursor === 0) { onNew(); return; }
       const s = sessions[cursor - 1];
       if (s) onResume(s);
+      return;
+    }
+    if (key.name === 'd' || key.name === 'delete') {
+      if (cursor === 0) return; // can't delete the "New session" row
+      const s = sessions[cursor - 1];
+      if (s) setConfirmId(s.id);
+      return;
     }
   });
 
   const left = Math.max(0, Math.floor((width  - MODAL_WIDTH)  / 2));
   const top  = Math.max(0, Math.floor((height - MODAL_HEIGHT) / 2));
+
+  const confirmSession = confirmId ? sessions.find(s => s.id === confirmId) : null;
 
   return (
     <>
@@ -64,8 +90,18 @@ export function SessionsModal({ sessions, currentId, onResume, onNew, onClose }:
         {/* header */}
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
           <text fg="#00CCFF"><strong> Sessions</strong></text>
-          <text fg="#555555">↑↓ select · Enter open · Esc cancel </text>
+          <text fg="#555555">↑↓ select · Enter open · D delete · Esc cancel </text>
         </box>
+
+        {/* confirm delete prompt */}
+        {confirmSession && (
+          <box marginBottom={1} paddingLeft={1} paddingRight={1} backgroundColor="#2a0a0a">
+            <text fg="#FF4444">
+              <strong>Delete "{confirmSession.title}"? </strong>
+              <span fg="#FF8888">Press Y to confirm, any other key to cancel.</span>
+            </text>
+          </box>
+        )}
 
         {/* new session row */}
         <box flexDirection="column" marginBottom={1}
@@ -81,18 +117,22 @@ export function SessionsModal({ sessions, currentId, onResume, onNew, onClose }:
           <text fg="#555555">   No saved sessions yet.</text>
         ) : (
           sessions.map((s, i) => {
-            const idx      = i + 1;
-            const selected = cursor === idx;
+            const idx       = i + 1;
+            const selected  = cursor === idx;
             const isCurrent = s.id === currentId;
-            const msgCount = s.messages.length;
+            const isConfirm = s.id === confirmId;
+            const msgCount  = s.messages.length;
 
             return (
               <box key={s.id} flexDirection="column" marginBottom={1}
-                   backgroundColor={selected ? '#0d2a3a' : undefined}>
+                   backgroundColor={isConfirm ? '#2a0a0a' : selected ? '#0d2a3a' : undefined}>
                 <text>
                   <span fg={selected ? '#00CCFF' : '#444444'}>{selected ? ' ❯ ' : '   '}</span>
-                  <span fg={selected ? '#00CCFF' : '#CCCCCC'}><strong>{s.title}</strong></span>
+                  <span fg={isConfirm ? '#FF4444' : selected ? '#00CCFF' : '#CCCCCC'}>
+                    <strong>{s.title}</strong>
+                  </span>
                   {isCurrent && <span fg="#FFCC00">  ← active</span>}
+                  {isConfirm && <span fg="#FF4444">  ← confirm delete (Y / any key)</span>}
                 </text>
                 <text fg="#555555">
                   {'     '}{formatDate(s.updatedAt)}
