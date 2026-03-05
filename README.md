@@ -45,7 +45,7 @@ bun run build
 bun link
 ```
 
-After linking, you can run `neo` from any directory.
+This compiles NEO to a self-contained executable (`dist/neo.exe` on Windows) and registers it globally. After linking, you can run `neo` from any directory.
 
 ## Usage
 

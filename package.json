@@ -5,10 +5,10 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "neo": "dist/index.js"
+    "neo": "dist/neo.exe"
   },
   "scripts": {
-    "build": "bun build src/index.tsx --outdir dist --target bun --external react-devtools-core",
+    "build": "bun build src/index.tsx --compile --outfile dist/neo",
     "dev": "bun run src/index.tsx",
     "start": "bun run dist/index.js"
   },
@@ -19,7 +19,8 @@
     "@opentui/react": "^0.1.84",
     "@sinclair/typebox": "latest",
     "chalk": "^5.0.0",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
