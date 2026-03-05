@@ -34,6 +34,8 @@ cp .env.example .env
 # Edit .env with your AWS or Azure credentials
 ```
 
+On first run, NEO automatically creates `.neo/sessions/` and `.neo/workspace/` in the project directory. No manual setup is needed.
+
 ### Optional: global `neo` command
 
 To run `neo` from anywhere in your terminal:
@@ -67,7 +69,7 @@ Place your meter images in an `input/` directory at the project root (or pass `-
 |---|---|
 | `/skills` | List all loaded defect skills |
 | `/connect` | Switch AI provider (AWS Bedrock ↔ Azure OpenAI) at runtime |
-| `/sessions` | Browse and resume past conversations |
+| `/sessions` | Browse, resume, or delete past conversations |
 | `/compact` | Summarise conversation to reduce token cost |
 | `↑ / ↓` | Scroll conversation history |
 | `Ctrl+C` | Quit |
@@ -95,9 +97,12 @@ BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
 ```env
 AI_PROVIDER=azure
 AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_BASE_URL=https://<your-resource>.openai.azure.com/openai/v1
-AZURE_MODEL_ID=gpt-4o
+AZURE_OPENAI_BASE_URL=https://<your-resource>.cognitiveservices.azure.com/openai
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_MODEL_ID=<your-deployment-name>
 ```
+
+> **Finding your Azure values:** In the Azure portal, open your AI Services resource. The `AZURE_OPENAI_BASE_URL` is your endpoint URL with `/openai` appended (e.g. `https://my-resource.cognitiveservices.azure.com/openai`). The `AZURE_MODEL_ID` is the deployment name shown in Azure AI Foundry.
 
 You can also switch provider at any time without restarting by typing `/connect` in the chat.
 
@@ -133,9 +138,19 @@ New skills are picked up automatically — no code changes needed, just add a ne
 
 NEO automatically saves every conversation to `.neo/sessions/` in your working directory. Sessions are stored as JSON files, one per conversation.
 
-- `/sessions` — open the sessions browser to resume a past conversation
+- `/sessions` — open the sessions browser to resume or delete a past conversation
 - Resuming a session restores the last 10 messages into the model's context for memory continuity
 - `/compact` — if a conversation grows long, this summarises it into a single context entry to reduce token usage and cost
+
+### Session browser keybindings
+
+| Key | Action |
+|---|---|
+| `↑ / ↓` | Navigate sessions |
+| `Enter` | Open / resume selected session |
+| `D` | Delete selected session (prompts for confirmation) |
+| `Y` | Confirm deletion |
+| `Esc` | Close browser |
 
 ## Project Structure
 
@@ -146,7 +161,7 @@ src/
 ├── agent/
 │   ├── chat.ts            # ChatAgent — streaming, tool loop, compact, session restore
 │   ├── analyser.ts        # Vision model calls for image analysis
-│   ├── session.ts         # SessionStore — save/load/list sessions to disk
+│   ├── session.ts         # SessionStore — save/load/list/delete sessions to disk
 │   ├── skills.ts          # Skill discovery and loading
 │   ├── loader.ts          # Image loading and base64 encoding
 │   └── tools.ts           # Tool definitions (analyse_image, read_file, run_command, etc.)
