@@ -50,7 +50,6 @@ description: Detects asbestos materials in electrical meter installations, inclu
 - A closed metal clad enclosure alone does NOT confirm asbestos — look for visible fibrous material
 
 ## Detection Logic
-
 **asbestos = True if:**
 - Grey/brown FIBROUS material visible BETWEEN ceramic fuse holders (flash guard), OR
 - Grey/white FIBROUS board visible behind the installation (backing board), OR
